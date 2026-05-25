@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "next build",
+    "dev": "tsx --env-file=.env server.ts",
+    "build": "next build && prisma db push",
     "start": "cross-env NODE_ENV=production tsx server.ts",
     "lint": "eslint",
     "db:push": "prisma db push",
