@@ -2,6 +2,9 @@
   "name": "truco",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "tsx --env-file=.env server.ts",
     "build": "next build && prisma db push",
