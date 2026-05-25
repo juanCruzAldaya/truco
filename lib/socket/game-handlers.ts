@@ -20,8 +20,11 @@ import { getAiMove } from '../game/ai-player'
 import { prisma } from '../prisma'
 
 const GAME_TTL = 60 * 60 * 2 // 2 hours
-const AI_RATE_LIMIT = 10
+const AI_RATE_LIMIT = parseInt(process.env.AI_RATE_LIMIT ?? '10', 10)
 const AI_RATE_TTL = 60 * 60 // 1 hour window
+const BYPASS_IPS = new Set(
+  (process.env.RATE_LIMIT_BYPASS_IPS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+)
 
 async function getState(redis: RedisClientType, gameId: string): Promise<GameState | null> {
   const raw = await redis.get(`game:${gameId}`)
@@ -87,6 +90,8 @@ async function initStateFromPrisma(
 
 // Returns false if rate limit exceeded for this userId or IP
 async function checkRateLimit(redis: RedisClientType, userId: string, ip: string): Promise<boolean> {
+  if (BYPASS_IPS.has(ip)) return true
+
   const userKey = `ratelimit:ai:user:${userId}`
   const ipKey = `ratelimit:ai:ip:${ip}`
 
