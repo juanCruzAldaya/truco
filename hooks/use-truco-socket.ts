@@ -29,7 +29,10 @@ export function useTrucoSocket({ gameId, userId, seat }: UseTrucoSocketOptions) 
     socket.on('disconnect', () => setConnected(false))
 
     const stateEvent = `game:state:${seat}`
-    socket.on(stateEvent, (s: GameState) => setState(s))
+    socket.on(stateEvent, (s: GameState) => {
+      setState(s)
+      setError(null)
+    })
     socket.on('game:ai_thinking', ({ explanation }: { explanation: string }) => {
       setAiMessage(explanation)
     })

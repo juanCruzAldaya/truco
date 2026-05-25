@@ -14,6 +14,7 @@ import {
   applyEnvidoCall,
   applyTrucoCall,
   createInitialState,
+  cardPower,
 } from '../game/engine'
 import { getAiMove } from '../game/ai-player'
 import { prisma } from '../prisma'
@@ -246,6 +247,16 @@ async function maybeRunAi(
       broadcastState(io, updated)
     } catch (e) {
       console.error('[ai-move]', e)
+      io.to(fresh.gameId).emit('game:ai_thinking', {
+        explanation: 'No pude conectarme con Claude. Jugando carta automáticamente...',
+      })
+      const lowest = [...fresh.hands[fresh.aiSeat!]]
+        .sort((a, b) => cardPower(a) - cardPower(b))[0]
+      if (lowest && fresh.phase === 'playing') {
+        const updated = applyPlayCard(fresh, fresh.aiSeat!, lowest.id)
+        await setState(redis, updated)
+        broadcastState(io, updated)
+      }
     }
   }, 1200)
 }
