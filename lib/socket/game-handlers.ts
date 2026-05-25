@@ -194,7 +194,7 @@ export function registerGameHandlers(
     }
     await setState(redis, state)
     broadcastState(io, state)
-    scheduleNextHand(io, redis, state)
+    scheduleNextHand(io, socket, redis, state, false, userId, ip)
   })
 
   // ── Next hand ────────────────────────────────────────────────────────────
@@ -212,13 +212,22 @@ export function registerGameHandlers(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function scheduleNextHand(io: Server, redis: RedisClientType, state: GameState) {
+function scheduleNextHand(
+  io: Server,
+  socket: Socket,
+  redis: RedisClientType,
+  state: GameState,
+  explain: boolean,
+  userId: string,
+  ip: string,
+) {
   setTimeout(async () => {
     const fresh = await getState(redis, state.gameId)
     if (!fresh || fresh.phase !== 'hand_over') return
     const next = dealHand(fresh)
     await setState(redis, next)
     broadcastState(io, next)
+    await maybeRunAi(io, socket, redis, next, explain, userId, ip)
   }, 3000)
 }
 
@@ -273,11 +282,20 @@ async function maybeRunAi(
           score: { ...fresh.score, [opponent]: fresh.score[opponent] + 1 },
           phase: 'hand_over',
         }
-        scheduleNextHand(io, redis, updated)
+        scheduleNextHand(io, socket, redis, updated, explain, userId, ip)
       }
 
       await setState(redis, updated)
       broadcastState(io, updated)
+
+      // If AI won the trick and must lead next, trigger another move
+      if (
+        updated.phase === 'playing' &&
+        updated.aiSeat &&
+        updated.turn === updated.aiSeat
+      ) {
+        await maybeRunAi(io, socket, redis, updated, explain, userId, ip)
+      }
     } catch (e) {
       console.error('[ai-move]', e)
       io.to(fresh.gameId).emit('game:ai_thinking', {
@@ -289,6 +307,9 @@ async function maybeRunAi(
         const updated = applyPlayCard(fresh, fresh.aiSeat!, lowest.id)
         await setState(redis, updated)
         broadcastState(io, updated)
+        if (updated.phase === 'playing' && updated.aiSeat && updated.turn === updated.aiSeat) {
+          await maybeRunAi(io, socket, redis, updated, explain, userId, ip)
+        }
       }
     }
   }, 1200)
