@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { trpc } from '@/lib/trpc/client'
 import { Bot, Users } from 'lucide-react'
 
-export default function NewGamePage() {
+function NewGameRedirect() {
   const router = useRouter()
   const params = useSearchParams()
   const vsAi = params.get('ai') === 'true'
@@ -29,5 +29,17 @@ export default function NewGamePage() {
         {vsAi ? 'Preparando partida vs Claude...' : 'Creando sala...'}
       </p>
     </div>
+  )
+}
+
+export default function NewGamePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0a0a1a] flex items-center justify-center">
+        <Bot className="w-10 h-10 text-purple-400 animate-pulse" />
+      </div>
+    }>
+      <NewGameRedirect />
+    </Suspense>
   )
 }
