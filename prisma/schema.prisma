@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  gamesAsP1    Game[]   @relation("Player1")
+  gamesAsP2    Game[]   @relation("Player2")
+}
+
+model Game {
+  id        String     @id @default(cuid())
+  status    GameStatus @default(WAITING)
+  player1Id String
+  player2Id String?
+  winnerId  String?
+  scoreP1   Int        @default(0)
+  scoreP2   Int        @default(0)
+  isAiGame  Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  player1   User       @relation("Player1", fields: [player1Id], references: [id])
+  player2   User?      @relation("Player2", fields: [player2Id], references: [id])
+}
+
+enum GameStatus {
+  WAITING
+  PLAYING
+  FINISHED
+}
