@@ -16,6 +16,10 @@ export function useTrucoSocket({ gameId, userId, seat }: UseTrucoSocketOptions) 
   const [aiMessage, setAiMessage] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [explain, setExplain] = useState(false)
+
+  const explainRef = useRef(explain)
+  useEffect(() => { explainRef.current = explain }, [explain])
 
   useEffect(() => {
     const socket = io()
@@ -43,20 +47,22 @@ export function useTrucoSocket({ gameId, userId, seat }: UseTrucoSocketOptions) 
   }, [gameId, userId, seat])
 
   const playCard = useCallback((cardId: string) => {
-    socketRef.current?.emit('game:play_card', { gameId, userId, cardId })
+    socketRef.current?.emit('game:play_card', { gameId, userId, cardId, explain: explainRef.current })
   }, [gameId, userId])
 
   const callEnvido = useCallback((call: string) => {
-    socketRef.current?.emit('game:envido', { gameId, userId, call })
+    socketRef.current?.emit('game:envido', { gameId, userId, call, explain: explainRef.current })
   }, [gameId, userId])
 
   const callTruco = useCallback((call: string) => {
-    socketRef.current?.emit('game:truco', { gameId, userId, call })
+    socketRef.current?.emit('game:truco', { gameId, userId, call, explain: explainRef.current })
   }, [gameId, userId])
 
   const irAlMazo = useCallback(() => {
     socketRef.current?.emit('game:mazo', { gameId, userId })
   }, [gameId, userId])
 
-  return { state, aiMessage, connected, error, playCard, callEnvido, callTruco, irAlMazo }
+  const toggleExplain = useCallback(() => setExplain((v) => !v), [])
+
+  return { state, aiMessage, connected, error, explain, toggleExplain, playCard, callEnvido, callTruco, irAlMazo }
 }

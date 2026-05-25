@@ -14,7 +14,7 @@ interface GameBoardProps {
 }
 
 export function GameBoard({ gameId, userId, seat, userName }: GameBoardProps) {
-  const { state, aiMessage, connected, error, playCard, callEnvido, callTruco, irAlMazo } =
+  const { state, aiMessage, connected, error, explain, toggleExplain, playCard, callEnvido, callTruco, irAlMazo } =
     useTrucoSocket({ gameId, userId, seat })
 
   const chatRef = useRef<HTMLDivElement>(null)
@@ -198,9 +198,22 @@ export function GameBoard({ gameId, userId, seat, userName }: GameBoardProps) {
 
       {/* AI TERMINAL PANEL */}
       <div className="w-full md:w-80 bg-[#050510] border-t md:border-t-0 md:border-l border-white/10 flex flex-col">
-        <div className="p-4 border-b border-white/10 flex items-center gap-2 bg-black/20">
-          <MessageSquare className="w-5 h-5 text-purple-400" />
-          <h2 className="font-mono font-bold text-sm tracking-widest text-purple-400">IA TERMINAL</h2>
+        <div className="p-4 border-b border-white/10 flex items-center justify-between bg-black/20">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-purple-400" />
+            <h2 className="font-mono font-bold text-sm tracking-widest text-purple-400">IA TERMINAL</h2>
+          </div>
+          <button
+            onClick={toggleExplain}
+            title="Activar explicaciones de la IA"
+            className={`text-[9px] font-mono uppercase tracking-wider px-2 py-1 rounded border transition-colors ${
+              explain
+                ? 'border-purple-500/60 bg-purple-500/20 text-purple-300'
+                : 'border-white/10 text-slate-600 hover:text-slate-400 hover:border-white/20'
+            }`}
+          >
+            {explain ? 'Explicar ✓' : 'Explicar'}
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-xs">

@@ -20,6 +20,8 @@ import { getAiMove } from '../game/ai-player'
 import { prisma } from '../prisma'
 
 const GAME_TTL = 60 * 60 * 2 // 2 hours
+const AI_RATE_LIMIT = 10
+const AI_RATE_TTL = 60 * 60 // 1 hour window
 
 async function getState(redis: RedisClientType, gameId: string): Promise<GameState | null> {
   const raw = await redis.get(`game:${gameId}`)
@@ -50,7 +52,6 @@ function broadcastState(io: Server, state: GameState) {
   io.to(state.gameId).emit('game:state:p2', stateForPlayer(state, 'p2'))
 }
 
-// Resolve seat from Redis, falling back to Prisma game record
 async function resolveSeat(
   redis: RedisClientType,
   gameId: string,
@@ -65,7 +66,6 @@ async function resolveSeat(
   return seat
 }
 
-// Initialize Redis game state from Prisma if not present
 async function initStateFromPrisma(
   redis: RedisClientType,
   gameId: string,
@@ -85,31 +85,46 @@ async function initStateFromPrisma(
   return state
 }
 
+// Returns false if rate limit exceeded for this userId or IP
+async function checkRateLimit(redis: RedisClientType, userId: string, ip: string): Promise<boolean> {
+  const userKey = `ratelimit:ai:user:${userId}`
+  const ipKey = `ratelimit:ai:ip:${ip}`
+
+  const [userCount, ipCount] = await Promise.all([
+    redis.incr(userKey),
+    redis.incr(ipKey),
+  ])
+
+  if (userCount === 1) await redis.expire(userKey, AI_RATE_TTL)
+  if (ipCount === 1) await redis.expire(ipKey, AI_RATE_TTL)
+
+  return userCount <= AI_RATE_LIMIT && ipCount <= AI_RATE_LIMIT
+}
+
 export function registerGameHandlers(
   io: Server,
   socket: Socket,
   redis: RedisClientType,
 ) {
-  // ── Rejoin (primary entry point from /game/[id] page) ────────────────────
+  const ip = (socket.handshake.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim()
+    ?? socket.handshake.address
+
+  // ── Rejoin ───────────────────────────────────────────────────────────────
   socket.on('game:rejoin', async ({ gameId, userId }: { gameId: string; userId: string }) => {
-    // Initialize Redis state from Prisma on first connection
     let state = await getState(redis, gameId)
-    if (!state) {
-      state = await initStateFromPrisma(redis, gameId)
-    }
+    if (!state) state = await initStateFromPrisma(redis, gameId)
     if (!state) return socket.emit('game:error', { message: 'Partida no encontrada' })
 
     const seat = await resolveSeat(redis, gameId, userId)
     socket.join(gameId)
     socket.emit(`game:state:${seat}`, stateForPlayer(state, seat))
 
-    // If vs AI and it's already AI's turn on load, trigger it
     if (state.aiSeat && state.turn === state.aiSeat) {
-      await maybeRunAi(io, socket, redis, state)
+      await maybeRunAi(io, socket, redis, state, false, userId, ip)
     }
   })
 
-  // ── Join multiplayer game (second player) ────────────────────────────────
+  // ── Join multiplayer ─────────────────────────────────────────────────────
   socket.on('game:join', async ({ gameId, userId }: { gameId: string; userId: string }) => {
     let state = await getState(redis, gameId)
     if (!state) state = await initStateFromPrisma(redis, gameId)
@@ -126,7 +141,7 @@ export function registerGameHandlers(
   })
 
   // ── Play card ────────────────────────────────────────────────────────────
-  socket.on('game:play_card', async ({ gameId, userId, cardId }: { gameId: string; userId: string; cardId: string }) => {
+  socket.on('game:play_card', async ({ gameId, userId, cardId, explain }: { gameId: string; userId: string; cardId: string; explain?: boolean }) => {
     let state = await getState(redis, gameId)
     if (!state) return
 
@@ -136,11 +151,11 @@ export function registerGameHandlers(
     state = applyPlayCard(state, seat, cardId)
     await setState(redis, state)
     broadcastState(io, state)
-    await maybeRunAi(io, socket, redis, state)
+    await maybeRunAi(io, socket, redis, state, explain ?? false, userId, ip)
   })
 
   // ── Envido call ──────────────────────────────────────────────────────────
-  socket.on('game:envido', async ({ gameId, userId, call }: { gameId: string; userId: string; call: EnvidoCall | CallResponse }) => {
+  socket.on('game:envido', async ({ gameId, userId, call, explain }: { gameId: string; userId: string; call: EnvidoCall | CallResponse; explain?: boolean }) => {
     let state = await getState(redis, gameId)
     if (!state) return
 
@@ -148,11 +163,11 @@ export function registerGameHandlers(
     state = applyEnvidoCall(state, seat, call)
     await setState(redis, state)
     broadcastState(io, state)
-    await maybeRunAi(io, socket, redis, state)
+    await maybeRunAi(io, socket, redis, state, explain ?? false, userId, ip)
   })
 
   // ── Truco call ───────────────────────────────────────────────────────────
-  socket.on('game:truco', async ({ gameId, userId, call }: { gameId: string; userId: string; call: TrucoCall | CallResponse }) => {
+  socket.on('game:truco', async ({ gameId, userId, call, explain }: { gameId: string; userId: string; call: TrucoCall | CallResponse; explain?: boolean }) => {
     let state = await getState(redis, gameId)
     if (!state) return
 
@@ -160,7 +175,7 @@ export function registerGameHandlers(
     state = applyTrucoCall(state, seat, call)
     await setState(redis, state)
     broadcastState(io, state)
-    await maybeRunAi(io, socket, redis, state)
+    await maybeRunAi(io, socket, redis, state, explain ?? false, userId, ip)
   })
 
   // ── Ir al mazo ───────────────────────────────────────────────────────────
@@ -183,13 +198,15 @@ export function registerGameHandlers(
   })
 
   // ── Next hand ────────────────────────────────────────────────────────────
-  socket.on('game:next_hand', async ({ gameId }: { gameId: string }) => {
+  socket.on('game:next_hand', async ({ gameId, explain }: { gameId: string; explain?: boolean }) => {
     let state = await getState(redis, gameId)
     if (!state || state.phase !== 'hand_over') return
     state = dealHand(state)
     await setState(redis, state)
     broadcastState(io, state)
-    await maybeRunAi(io, socket, redis, state)
+    const playerSeat: PlayerSeat = state.aiSeat === 'p1' ? 'p2' : 'p1'
+    const humanId = state.players[playerSeat]
+    await maybeRunAi(io, socket, redis, state, explain ?? false, humanId, ip)
   })
 }
 
@@ -210,6 +227,9 @@ async function maybeRunAi(
   socket: Socket,
   redis: RedisClientType,
   state: GameState,
+  explain: boolean,
+  userId: string,
+  ip: string,
 ) {
   if (
     !state.aiSeat ||
@@ -222,8 +242,21 @@ async function maybeRunAi(
     const fresh = await getState(redis, state.gameId)
     if (!fresh || fresh.turn !== fresh.aiSeat) return
 
+    const allowed = await checkRateLimit(redis, userId, ip)
+    if (!allowed) {
+      io.to(fresh.gameId).emit('game:ai_thinking', { explanation: 'Límite de partidas alcanzado por hoy. Jugando automáticamente...' })
+      const playerSeat: PlayerSeat = fresh.aiSeat! === 'p1' ? 'p2' : 'p1'
+      const lowest = [...fresh.hands[fresh.aiSeat!]].sort((a, b) => cardPower(a) - cardPower(b))[0]
+      if (lowest && fresh.phase === 'playing') {
+        const updated = applyPlayCard(fresh, fresh.aiSeat!, lowest.id)
+        await setState(redis, updated)
+        broadcastState(io, updated)
+      }
+      return
+    }
+
     try {
-      const { move, explanation } = await getAiMove(fresh)
+      const { move, explanation } = await getAiMove(fresh, explain)
       io.to(fresh.gameId).emit('game:ai_thinking', { explanation })
 
       let updated = fresh
