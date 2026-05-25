@@ -1,5 +1,7 @@
 import type { Server, Socket } from 'socket.io'
-import type { RedisClientType } from 'redis'
+import type { createClient } from 'redis'
+
+type RedisClientType = ReturnType<typeof createClient>
 import {
   type GameState,
   type PlayerSeat,
@@ -23,21 +25,6 @@ async function getState(redis: RedisClientType, gameId: string): Promise<GameSta
 
 async function setState(redis: RedisClientType, state: GameState): Promise<void> {
   await redis.set(`game:${state.gameId}`, JSON.stringify(state), { EX: GAME_TTL })
-}
-
-function stateForPlayer(state: GameState, seat: PlayerSeat): GameState {
-  const opponentSeat: PlayerSeat = seat === 'p1' ? 'p2' : 'p1'
-  return {
-    ...state,
-    hands: {
-      ...state.hands,
-      [opponentSeat]: state.hands[opponentSeat].map(() => ({
-        id: 'hidden',
-        number: 0,
-        suit: 'espada' as const,
-      })),
-    },
-  }
 }
 
 export function registerGameHandlers(

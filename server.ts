@@ -22,9 +22,11 @@ async function main() {
   })
 
   const pubClient = createClient({ url: process.env.REDIS_URL ?? 'redis://localhost:6379' })
-  const subClient = pubClient.duplicate()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const subClient = pubClient.duplicate() as any
   await Promise.all([pubClient.connect(), subClient.connect()])
-  io.adapter(createAdapter(pubClient, subClient))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  io.adapter(createAdapter(pubClient as any, subClient))
 
   io.on('connection', (socket) => {
     registerGameHandlers(io, socket, pubClient)

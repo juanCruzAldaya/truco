@@ -47,6 +47,7 @@ export type GameState = {
   handNumber: number
   players: { p1: string; p2: string }   // socket / user IDs
   aiSeat?: PlayerSeat
+  isAiGame?: boolean
   lastMessage?: string
 }
 

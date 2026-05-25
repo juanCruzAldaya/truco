@@ -18,7 +18,7 @@ export function useTrucoSocket({ gameId, userId, seat }: UseTrucoSocketOptions) 
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const socket = io({ path: '/api/socket' })
+    const socket = io()
     socketRef.current = socket
 
     socket.on('connect', () => {
